@@ -388,7 +388,7 @@ async function save(){
 }
 
 async function initDB(){
- products=await loadProducts();
+ products=await loadProducts(); 
  if(products.length===0){
    const legacy=JSON.parse(localStorage.getItem(LS_PROD)||'null')||[];
    if(legacy.length){
