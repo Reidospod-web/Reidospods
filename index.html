@@ -464,7 +464,7 @@ function renderCatalog(){
 function addCart(id){
   const p=products.find(x=>x.id===id);
   if(!p||p.avail===false)return;
-  if(cart[id]){ cart[id].qty++; } else { cart[id]={id:p.id,name:p.name,price:p.price,emoji:p.emoji||'💨',img:p.img||'',qty:1}; }
+  if(cart[id]){ cart[id].qty++; } else { cart[id]={   id:p.id,   name:p.name,   price:p.price,   emoji:p.emoji||'💨',   qty:1 }; }
   saveCart(); updateCartUI();
   toast(`✅ ${p.name} adicionado!`);
 }
@@ -488,7 +488,7 @@ function renderCartPanel(){
   const el=document.getElementById('cartItems');
   if(!items.length){ el.innerHTML='<p class="cempty">Carrinho vazio.<br>Adicione produtos!</p>'; return; }
   el.innerHTML=items.map(i=>`<div class="citem">
-    <div class="ciem">${i.img?`<img src="${i.img}">`:(i.emoji||'💨')}</div>
+    <div class="ciem">${i.emoji||'💨'}</div>
     <div class="cii"><div class="cin">${i.name}</div><div class="cip">${fmt(i.price)} cada</div></div>
     <div class="cic">
       <button class="qb" onclick="chgQty(${i.id},-1)">−</button>
