@@ -353,7 +353,7 @@ const DB_STORE='products';
 const LS_CART = 'rdp_v2_cart';
 
 let products = [];
-let cart = JSON.parse(localStorage.getItem(LS_CART)||'{}');
+let cart = {};
 let nxtId = 1;
 
 function openDB(){
