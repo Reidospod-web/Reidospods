@@ -403,7 +403,7 @@ let curBadge = '';
 let curPay = 'pix';
 let pendingImg = '';
 
-function saveCart(){ localStorage.setItem(LS_CART, JSON.stringify(cart)); }
+function saveCart(){   const cartSlim = {};    Object.values(cart).forEach(item=>{     cartSlim[item.id] = {       id: item.id,       qty: item.qty     };   });    localStorage.setItem(LS_CART, JSON.stringify(cartSlim)); }
 function fmt(v){ return 'R$ '+v.toFixed(2).replace('.',','); }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2400); }
 
