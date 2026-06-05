@@ -426,6 +426,8 @@ let pendingImg = '';
 
 function saveCart(){ localStorage.setItem(LS_CART, JSON.stringify(cart)); }
 function fmt(v){ return 'R$ '+v.toFixed(2).replace('.',','); }
+// Escapa dados livres antes de inserir via innerHTML (evita XSS armazenado).
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2400); }
 
 function goPage(p){
@@ -479,13 +481,13 @@ async function loadOrders(){
   document.getElementById('ordersCount').textContent=list.length;
   if(!list.length){ el.innerHTML='<p style="color:var(--muted);font-size:.85rem;text-align:center;padding:1.5rem;">Nenhum pedido ainda.</p>'; return; }
   el.innerHTML=list.map(o=>{
-    const itens=(o.itens||[]).map(i=>`${i.name} ×${i.qty}`).join(', ');
-    const quando=o.created_at?new Date(o.created_at).toLocaleString('pt-BR'):'';
+    const itens=(o.itens||[]).map(i=>`${esc(i.name)} ×${esc(i.qty)}`).join(', ');
+    const quando=o.created_at?esc(new Date(o.created_at).toLocaleString('pt-BR')):'';
     const pag=o.pagamento==='pix'?'Pix':'Dinheiro';
     return `<div class="oitem">
-      <div class="ohead"><strong>${o.nome||'—'}</strong><span class="otot">${fmt(Number(o.total)||0)}</span></div>
-      <div class="ometa">${quando} · 💳 ${pag} · 📱 ${o.whatsapp||'—'}</div>
-      <div class="ometa">📍 ${o.rua||''}, ${o.numero||''}${o.complemento?' - '+o.complemento:''} — ${o.bairro||''}, ${o.cidade||''}/${o.uf||''}${o.cep?' · CEP '+o.cep:''}${o.referencia?' · Ref: '+o.referencia:''}</div>
+      <div class="ohead"><strong>${esc(o.nome||'—')}</strong><span class="otot">${fmt(Number(o.total)||0)}</span></div>
+      <div class="ometa">${quando} · 💳 ${pag} · 📱 ${esc(o.whatsapp||'—')}</div>
+      <div class="ometa">📍 ${esc(o.rua||'')}, ${esc(o.numero||'')}${o.complemento?' - '+esc(o.complemento):''} — ${esc(o.bairro||'')}, ${esc(o.cidade||'')}/${esc(o.uf||'')}${o.cep?' · CEP '+esc(o.cep):''}${o.referencia?' · Ref: '+esc(o.referencia):''}</div>
       <div class="oitens">🛍️ ${itens||'—'}</div>
     </div>`;
   }).join('');
@@ -511,17 +513,17 @@ function renderCatalog(){
     return;
   }
   g.innerHTML=list.map(p=>{
-    const bd=p.badge?`<span class="cbadge cb-${p.badge}">${p.badge==='new'?'NOVO':p.badge==='hot'?'🔥 HOT':'⭐ BEST'}</span>`:'';
+    const bd=p.badge?`<span class="cbadge cb-${esc(p.badge)}">${p.badge==='new'?'NOVO':p.badge==='hot'?'🔥 HOT':'⭐ BEST'}</span>`:'';
     const ua=p.avail===false?'<span class="unavail-tag">INDISPONÍVEL</span>':'';
-    const tags=(p.tags||[]).map(t=>`<span class="ctag">${t}</span>`).join('');
-    const imgHtml=p.img?`<img src="${p.img}" alt="${p.name}">`:`<span class="emoji-fallback">${p.emoji||'💨'}</span>`;
+    const tags=(p.tags||[]).map(t=>`<span class="ctag">${esc(t)}</span>`).join('');
+    const imgHtml=p.img?`<img src="${esc(p.img)}" alt="${esc(p.name)}">`:`<span class="emoji-fallback">${esc(p.emoji||'💨')}</span>`;
     return `<div class="card${p.avail===false?' unavail':''}">
       ${bd}${ua}
       <div class="cimg">${imgHtml}</div>
       <div class="cinfo">
-        <div class="cbrand">${p.brand}</div>
-        <div class="cname">${p.name}</div>
-        <div class="cdesc">${p.desc||''}</div>
+        <div class="cbrand">${esc(p.brand)}</div>
+        <div class="cname">${esc(p.name)}</div>
+        <div class="cdesc">${esc(p.desc||'')}</div>
         <div class="ctags">${tags}</div>
         <div class="cfoot">
           <div class="cprice">${fmt(p.price)}</div>
@@ -559,8 +561,8 @@ function renderCartPanel(){
   const el=document.getElementById('cartItems');
   if(!items.length){ el.innerHTML='<p class="cempty">Carrinho vazio.<br>Adicione produtos!</p>'; return; }
   el.innerHTML=items.map(i=>`<div class="citem">
-    <div class="ciem">${i.img?`<img src="${i.img}">`:(i.emoji||'💨')}</div>
-    <div class="cii"><div class="cin">${i.name}</div><div class="cip">${fmt(i.price)} cada</div></div>
+    <div class="ciem">${i.img?`<img src="${esc(i.img)}">`:esc(i.emoji||'💨')}</div>
+    <div class="cii"><div class="cin">${esc(i.name)}</div><div class="cip">${fmt(i.price)} cada</div></div>
     <div class="cic">
       <button class="qb" onclick="chgQty(${i.id},-1)">−</button>
       <span class="qn">${i.qty}</span>
@@ -577,7 +579,7 @@ function renderSummary(){
   const items=Object.values(cart);
   const tot=items.reduce((a,i)=>a+i.qty*i.price,0);
   document.getElementById('summaryItems').innerHTML=items.map(i=>
-    `<div class="sitem"><span>${i.emoji||'💨'} ${i.name} ×${i.qty}</span><span>${fmt(i.qty*i.price)}</span></div>`
+    `<div class="sitem"><span>${esc(i.emoji||'💨')} ${esc(i.name)} ×${esc(i.qty)}</span><span>${fmt(i.qty*i.price)}</span></div>`
   ).join('');
   document.getElementById('summaryTotal').textContent=fmt(tot);
 }
@@ -644,7 +646,7 @@ function previewImg(input){
   reader.onload=e=>{
     pendingImg=e.target.result;
     const prev=document.getElementById('imgPreview');
-    prev.innerHTML=`<img src="${pendingImg}">`;
+    prev.innerHTML=`<img src="${esc(pendingImg)}">`;
   };
   reader.readAsDataURL(file);
 }
@@ -698,8 +700,8 @@ function renderAdmin(){
   document.getElementById('adminList').innerHTML=products.length===0
     ?'<p style="color:var(--muted);font-size:.85rem;text-align:center;padding:1.5rem;">Nenhum produto ainda. Adicione acima!</p>'
     :products.map(p=>`<div class="aitem${p.avail===false?' unavail':''}">
-      <div class="aiem2">${p.img?`<img src="${p.img}">`:(p.emoji||'💨')}</div>
-      <div class="aii"><div class="ain">${p.name}</div><div class="aib">${p.brand} · ${p.cat}${p.avail===false?' · PAUSADO':''}</div></div>
+      <div class="aiem2">${p.img?`<img src="${esc(p.img)}">`:esc(p.emoji||'💨')}</div>
+      <div class="aii"><div class="ain">${esc(p.name)}</div><div class="aib">${esc(p.brand)} · ${esc(p.cat)}${p.avail===false?' · PAUSADO':''}</div></div>
       <div class="aip">${fmt(p.price)}</div>
       <div class="aibtns">
         <button class="togbtn ${p.avail===false?'ena':'dis'}" onclick="toggleAvail(${p.id})">${p.avail===false?'Ativar':'Pausar'}</button>
