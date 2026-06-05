@@ -187,6 +187,33 @@ nav{position:sticky;top:0;z-index:100;background:rgba(13,11,20,0.97);backdrop-fi
 .otot{font-family:'Syne',sans-serif;font-weight:700;color:var(--green);font-size:1rem;}
 .ometa{font-size:.76rem;color:var(--muted);line-height:1.5;}
 .oitens{font-size:.8rem;color:var(--text);margin-top:.45rem;padding-top:.45rem;border-top:1px solid var(--border);}
+
+/* ===== Skeleton (loading dos produtos) ===== */
+@keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+.sk{background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+.sk-img{height:165px;}
+.sk-img,.sk-line{background:linear-gradient(90deg,var(--bg3) 25%,var(--surface) 50%,var(--bg3) 75%);background-size:200% 100%;animation:shimmer 1.5s ease-in-out infinite;}
+.sk-line{height:.72rem;border-radius:6px;margin:.55rem .9rem;}
+.sk-body{padding:.4rem 0 1rem;}
+
+/* ===== Estados: erro / vazio ===== */
+.state-msg{grid-column:1/-1;text-align:center;padding:3.5rem 1rem;color:var(--muted);animation:cardIn .4s ease;}
+.state-ico{font-size:2.9rem;margin-bottom:.85rem;line-height:1;}
+.state-msg h3{font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;color:var(--text);margin-bottom:.45rem;}
+.state-msg p{font-size:.86rem;line-height:1.6;max-width:330px;margin:0 auto 1.2rem;}
+.retrybtn{background:var(--accent);border:none;color:#fff;padding:.58rem 1.4rem;border-radius:9px;font-family:'Syne',sans-serif;font-weight:700;font-size:.85rem;cursor:pointer;transition:all .2s;}
+.retrybtn:hover{background:var(--accent2);transform:translateY(-1px);box-shadow:0 6px 20px rgba(139,92,246,.3);}
+
+/* ===== Entrada dos cards ===== */
+@keyframes cardIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.card-in{animation:cardIn .4s cubic-bezier(.2,.7,.2,1) both;}
+@media(prefers-reduced-motion:reduce){.card-in{animation:none;}.sk-img,.sk-line{animation-duration:0s;}}
+
+/* ===== Busca: botão limpar + contador ===== */
+.srch input{padding-right:1.9rem;}
+.srch-clear{position:absolute;right:.45rem;top:50%;transform:translateY(-50%);background:var(--bg3);border:none;color:var(--muted);width:18px;height:18px;border-radius:50%;cursor:pointer;font-size:.8rem;line-height:1;display:none;align-items:center;justify-content:center;padding:0;transition:all .2s;}
+.srch-clear:hover{color:var(--text);background:var(--surface);}
+.rescount{padding:0 1.25rem .85rem;color:var(--muted);font-size:.8rem;letter-spacing:.2px;min-height:1.1rem;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.107.0/dist/umd/supabase.js" integrity="sha384-CQbEv3UOeYwlaBLdPF5KqEagCP39Q1KpvJC6Gwa3UGjZAwMvpA+0TFxSSnrgb4MX" crossorigin="anonymous"></script>
 </head>
@@ -211,9 +238,13 @@ nav{position:sticky;top:0;z-index:100;background:rgba(13,11,20,0.97);backdrop-fi
     <button class="flt" onclick="setFilter('pod',this)">Pod</button>
     <button class="flt" onclick="setFilter('mod',this)">Mod Box</button>
     <button class="flt" onclick="setFilter('kit',this)">Kit</button>
-    <div class="srch"><input type="text" placeholder="Buscar…" id="srchInput" oninput="renderCatalog()"></div>
+    <div class="srch">
+      <input type="text" placeholder="Buscar…" id="srchInput" oninput="onSearchInput()" autocomplete="off" aria-label="Buscar produtos">
+      <button class="srch-clear" id="srchClear" type="button" onclick="clearSearch()" aria-label="Limpar busca">×</button>
+    </div>
   </div>
-  <div class="grid" id="catalogGrid"></div>
+  <div class="rescount" id="resultCount" aria-live="polite"></div>
+  <div class="grid" id="catalogGrid" role="list" aria-busy="true"></div>
 </div>
 
 <!-- CHECKOUT -->
@@ -391,6 +422,8 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let products = [];
 let cart = JSON.parse(localStorage.getItem(LS_CART)||'{}');
 let nxtId = 1; // id é fornecido pelo cliente (tabela não usa auto-incremento)
+let loadState = 'loading'; // 'loading' | 'ready' | 'error'
+let animateNext = false;   // anima a entrada dos cards só na carga/retry
 
 // A tabela "produtos" usa colunas em português. Estas funções convertem
 // entre o formato do banco e o formato usado no app (em inglês).
@@ -411,13 +444,72 @@ function toDB(p){
 
 async function loadProducts(){
  const { data, error } = await sb.from('produtos').select('*').order('id',{ascending:true});
- if(error){ console.error('Erro ao carregar produtos:', error); toast('⚠️ Erro ao carregar produtos'); return []; }
+ if(error){ throw error; } // deixa o chamador (initCatalog) exibir o fallback de erro
  return (data||[]).map(fromDB);
 }
 
-async function initDB(){
- products = await loadProducts();
- nxtId = products.length ? Math.max(...products.map(p=>p.id))+1 : 1;
+// Orquestra o carregamento do catálogo com os 3 estados: skeleton → ok → erro.
+async function initCatalog(){
+ loadState='loading';
+ renderCatalog();                 // mostra o skeleton imediatamente
+ try{
+   products = await loadProducts();
+   nxtId = products.length ? Math.max(...products.map(p=>p.id))+1 : 1;
+   loadState='ready';
+   animateNext=true;
+ }catch(e){
+   console.error('Erro ao carregar produtos:', e);
+   loadState='error';
+   toast('⚠️ Não foi possível carregar os produtos');
+ }
+ updateCartUI();
+ renderCatalog();
+}
+
+// ----- Estados do catálogo (skeleton / erro / vazio) -----
+function skeletonCards(n=8){
+ return Array.from({length:n}).map(()=>
+   '<div class="sk" aria-hidden="true"><div class="sk-img"></div><div class="sk-body">'+
+   '<div class="sk-line" style="width:35%;height:.55rem"></div>'+
+   '<div class="sk-line" style="width:85%"></div>'+
+   '<div class="sk-line" style="width:55%"></div>'+
+   '<div class="sk-line" style="width:45%;margin-top:.9rem"></div></div></div>'
+ ).join('');
+}
+function errorState(){
+ const offline=!navigator.onLine;
+ return '<div class="state-msg" role="alert">'+
+   '<div class="state-ico">'+(offline?'📡':'⚠️')+'</div>'+
+   '<h3>'+(offline?'Você está sem conexão':'Não foi possível carregar os produtos')+'</h3>'+
+   '<p>'+(offline?'Verifique sua internet e tente novamente.':'Tivemos um problema ao falar com o servidor. Isso costuma ser temporário.')+'</p>'+
+   '<button class="retrybtn" onclick="initCatalog()">↻ Tentar novamente</button></div>';
+}
+function emptyState(){
+ const filtering=products.length>0; // há produtos, mas o filtro/busca não achou nada
+ return '<div class="state-msg">'+
+   '<div class="state-ico">'+(filtering?'🔍':'📦')+'</div>'+
+   '<h3>'+(filtering?'Nenhum produto encontrado':'Catálogo vazio')+'</h3>'+
+   '<p>'+(filtering?'Tente outra palavra ou remova os filtros.':'Nenhum produto cadastrado ainda. Acesse o Admin para adicionar.')+'</p>'+
+   (filtering?'<button class="retrybtn" onclick="resetFilters()">Limpar filtros</button>':'')+'</div>';
+}
+
+// ----- Busca: debounce, botão limpar, contador -----
+function debounce(fn,ms){ let t; return function(){ clearTimeout(t); t=setTimeout(fn,ms); }; }
+const debouncedRender = debounce(renderCatalog,160);
+function onSearchInput(){ toggleClearBtn(); debouncedRender(); }
+function toggleClearBtn(){ const v=document.getElementById('srchInput').value; document.getElementById('srchClear').style.display=v?'flex':'none'; }
+function clearSearch(){ const i=document.getElementById('srchInput'); i.value=''; toggleClearBtn(); i.focus(); renderCatalog(); }
+function resetFilters(){
+ curFilter='all';
+ document.querySelectorAll('.flt').forEach((b,i)=>b.classList.toggle('on',i===0));
+ const i=document.getElementById('srchInput'); i.value=''; toggleClearBtn();
+ renderCatalog();
+}
+function updateResultCount(n){
+ const el=document.getElementById('resultCount');
+ if(loadState!=='ready'||!products.length){ el.textContent=''; return; }
+ const total=products.length;
+ el.textContent = n===total ? (total===1?'1 produto':total+' produtos') : (n+' de '+total+' produtos');
 }
 let curFilter = 'all';
 let curBadge = '';
@@ -501,23 +593,32 @@ function setFilter(f,el){
 }
 
 function renderCatalog(){
-  const q=(document.getElementById('srchInput').value||'').toLowerCase();
+  const g=document.getElementById('catalogGrid');
+  // Estado: carregando → skeleton
+  if(loadState==='loading'){ g.setAttribute('aria-busy','true'); g.innerHTML=skeletonCards(); updateResultCount(0); return; }
+  g.setAttribute('aria-busy','false');
+  // Estado: erro → fallback com botão de tentar novamente
+  if(loadState==='error'){ g.innerHTML=errorState(); updateResultCount(0); return; }
+  // Estado: pronto → produtos (ou vazio)
+  const q=(document.getElementById('srchInput').value||'').toLowerCase().trim();
   const list=products.filter(p=>{
     const mf=curFilter==='all'||p.cat===curFilter;
-    const mq=!q||p.name.toLowerCase().includes(q)||p.brand.toLowerCase().includes(q)||(p.tags||[]).some(t=>t.toLowerCase().includes(q));
+    const mq=!q||(p.name||'').toLowerCase().includes(q)||(p.brand||'').toLowerCase().includes(q)||(p.tags||[]).some(t=>t.toLowerCase().includes(q));
     return mf&&mq;
   });
-  const g=document.getElementById('catalogGrid');
-  if(!list.length){
-    g.innerHTML='<p class="empty-msg">'+(products.length===0?'Nenhum produto cadastrado ainda.<br>Acesse o Admin para adicionar produtos.':'Nenhum produto encontrado.')+'</p>';
-    return;
-  }
-  g.innerHTML=list.map(p=>{
+  updateResultCount(list.length);
+  if(!list.length){ g.innerHTML=emptyState(); return; }
+  const anim=animateNext; animateNext=false;
+  g.innerHTML=list.map((p,i)=>{
     const bd=p.badge?`<span class="cbadge cb-${esc(p.badge)}">${p.badge==='new'?'NOVO':p.badge==='hot'?'🔥 HOT':'⭐ BEST'}</span>`:'';
     const ua=p.avail===false?'<span class="unavail-tag">INDISPONÍVEL</span>':'';
     const tags=(p.tags||[]).map(t=>`<span class="ctag">${esc(t)}</span>`).join('');
-    const imgHtml=p.img?`<img src="${esc(p.img)}" alt="${esc(p.name)}">`:`<span class="emoji-fallback">${esc(p.emoji||'💨')}</span>`;
-    return `<div class="card${p.avail===false?' unavail':''}">
+    const imgHtml=p.img
+      ?`<img src="${esc(p.img)}" alt="${esc(p.name)}" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><span class="emoji-fallback" style="display:none">${esc(p.emoji||'💨')}</span>`
+      :`<span class="emoji-fallback">${esc(p.emoji||'💨')}</span>`;
+    const cls='card'+(p.avail===false?' unavail':'')+(anim?' card-in':'');
+    const delay=anim?` style="animation-delay:${(Math.min(i,14)*0.035).toFixed(3)}s"`:'';
+    return `<div class="${cls}"${delay} role="listitem">
       ${bd}${ua}
       <div class="cimg">${imgHtml}</div>
       <div class="cinfo">
@@ -710,7 +811,11 @@ function renderAdmin(){
     </div>`).join('');
 }
 
-initDB().then(()=>{updateCartUI(); renderCatalog();});
+// Ao terminar a animação de entrada, remove a classe para não travar o :hover.
+document.getElementById('catalogGrid').addEventListener('animationend',e=>{
+  if(e.target.classList&&e.target.classList.contains('card-in')) e.target.classList.remove('card-in');
+});
+initCatalog();
 </script>
 </body>
 </html>
