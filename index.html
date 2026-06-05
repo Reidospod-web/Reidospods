@@ -347,79 +347,56 @@ nav{position:sticky;top:0;z-index:100;background:rgba(13,11,20,0.97);backdrop-fi
 <script>
 const WPP_NUM = '5573981945910';
 const PIX_KEY = '1187600526';
+const LS_PROD = 'rdp_v2_products_legacy';
+const DB_NAME='rdp_catalog_db';
+const DB_STORE='products';
 const LS_CART = 'rdp_v2_cart';
-
-// ── Supabase ──────────────────────────────────────────────
-const SUPA_URL  = 'https://gegykbsjgzvxyzwpnzol.supabase.co';
-const SUPA_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlZ3lrYnNqZ3p2eHl6d3Buem9sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1ODkwNjksImV4cCI6MjA5NjE2NTA2OX0.smvAUbAu1ANhnG03--yxexPfy9tUvL0IXmdxW6tlFqo';
-
-async function supaFetch(path, opts={}){
-  const res = await fetch(SUPA_URL+'/rest/v1/'+path, {
-    headers:{
-      'apikey': SUPA_KEY,
-      'Authorization': 'Bearer '+SUPA_KEY,
-      'Content-Type': 'application/json',
-      'Prefer': opts.prefer||'return=representation',
-      ...opts.headers
-    },
-    ...opts
-  });
-  if(!res.ok){
-    const err = await res.text();
-    throw new Error('Supabase: '+res.status+' '+err);
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : [];
-}
-
-async function loadProducts(){
-  try{
-    const rows = await supaFetch('produtos?select=*&order=id.asc');
-    return rows.map(r=>({
-      id:     r.id,
-      img:    r.imagem_url||'',
-      emoji:  r.emoji||'💨',
-      brand:  r.marca||'SEM MARCA',
-      name:   r.nome,
-      price:  parseFloat(r.preco)||0,
-      desc:   r.descricao||'',
-      cat:    r.categoria||'pods',
-      tags:   r.tags||[],
-      badge:  r.badge||'',
-      avail:  r.disponivel!==false
-    }));
-  }catch(e){ console.error('loadProducts:',e); return []; }
-}
-
-async function save(){
-  try{
-    // apaga tudo e reinsere (simples para pequenos catálogos)
-    await supaFetch('produtos?id=gte.0', {method:'DELETE', prefer:'return=minimal', headers:{}});
-    if(!products.length) return;
-    const rows = products.map(p=>({
-      id:          p.id,
-      nome:        p.name,
-      preco:       p.price,
-      descricao:   p.desc||'',
-      imagem_url:  p.img||'',
-      emoji:       p.emoji||'💨',
-      marca:       p.brand||'SEM MARCA',
-      categoria:   p.cat||'pods',
-      tags:        p.tags||[],
-      badge:       p.badge||'',
-      disponivel:  p.avail!==false
-    }));
-    await supaFetch('produtos', {method:'POST', body:JSON.stringify(rows), prefer:'return=minimal'});
-  }catch(e){ console.error('save:',e); toast('⚠️ Erro ao salvar. Verifique o console.'); }
-}
 
 let products = [];
 let cart = JSON.parse(localStorage.getItem(LS_CART)||'{}');
 let nxtId = 1;
 
+function openDB(){
+ return new Promise((resolve,reject)=>{
+  const req=indexedDB.open(DB_NAME,1);
+  req.onupgradeneeded=(e)=>{
+   const db=e.target.result;
+   if(!db.objectStoreNames.contains(DB_STORE)){
+      db.createObjectStore(DB_STORE,{keyPath:'id'});
+   }
+  };
+  req.onsuccess=()=>resolve(req.result);
+  req.onerror=()=>reject(req.error);
+ });
+}
+
+async function loadProducts(){
+ const db=await openDB();
+ return new Promise((resolve,reject)=>{
+  const req=db.transaction(DB_STORE,'readonly').objectStore(DB_STORE).getAll();
+  req.onsuccess=()=>resolve(req.result||[]);
+  req.onerror=()=>reject(req.error);
+ });
+}
+
+async function save(){
+ const db=await openDB();
+ const tx=db.transaction(DB_STORE,'readwrite');
+ const store=tx.objectStore(DB_STORE);
+ store.clear();
+ products.forEach(p=>store.put(p));
+}
+
 async function initDB(){
-  products = await loadProducts();
-  nxtId = products.length ? Math.max(...products.map(p=>p.id))+1 : 1;
+ products=await loadProducts();
+ if(products.length===0){
+   const legacy=JSON.parse(localStorage.getItem(LS_PROD)||'null')||[];
+   if(legacy.length){
+      products=legacy;
+      await save();
+   }
+ }
+ nxtId = products.length ? Math.max(...products.map(p=>p.id))+1 : 1;
 }
 let curFilter = 'all';
 let curBadge = '';
