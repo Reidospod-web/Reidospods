@@ -11,14 +11,24 @@ clientes, em qualquer dispositivo. O painel **Admin** agora usa **login real**
 - ✅ URL e chave **publishable** preenchidas no `index.html`.
 - ✅ Código adaptado à tabela `produtos` que já existe (colunas em português).
 - ✅ Painel Admin com login (Supabase Auth) + tela de pedidos protegida.
-- ⚙️ Falta rodar o SQL da tabela `pedidos` e configurar o usuário admin (abaixo).
+- ✅ SQL da tabela `pedidos` executado no banco (RLS + policies aplicadas).
+- ⚙️ Falta configurar o usuário admin (passo 2 abaixo).
 
-## 1. Criar a tabela `pedidos`
+## 1. Criar a tabela `pedidos` — ✅ FEITO
 
-Rode o conteúdo de [`supabase_schema.sql`](./supabase_schema.sql) em
-**Supabase → SQL Editor → New query → Run**. Isso cria a tabela `pedidos` com:
+O conteúdo de [`supabase_schema.sql`](./supabase_schema.sql) já foi **executado no banco**.
+A tabela `pedidos` está criada com:
 - INSERT liberado para clientes (checkout sem login);
 - SELECT (leitura) liberado **apenas para usuários autenticados** (admin logado).
+
+> Para reaplicar (script é idempotente), rode o arquivo em
+> **Supabase → SQL Editor → New query → Run**.
+>
+> **Conexão por fora do painel:** a string de **conexão direta**
+> (`db.<ref>.supabase.co:5432`) é IPv6-only. Em ambientes sem IPv6, use o **pooler**:
+> host `aws-1-sa-east-1.pooler.supabase.com`, porta `5432` (ou `6543`), usuário
+> `postgres.<ref>`. O TLS usa a CA própria do Supabase (*Supabase Root 2021 CA*) —
+> valide contra ela em vez de desabilitar a verificação de certificado.
 
 ## 2. Configurar o login do admin (no painel do Supabase)
 
