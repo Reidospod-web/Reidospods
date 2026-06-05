@@ -179,7 +179,16 @@ nav{position:sticky;top:0;z-index:100;background:rgba(13,11,20,0.97);backdrop-fi
 
 .toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(10px);background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:.6rem 1.25rem;border-radius:9px;font-size:.82rem;opacity:0;transition:all .3s;z-index:500;pointer-events:none;white-space:nowrap;max-width:90vw;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.logoutbtn{background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:.45rem .9rem;border-radius:8px;cursor:pointer;font-size:.82rem;white-space:nowrap;transition:all .2s;flex-shrink:0;}
+.logoutbtn:hover{border-color:var(--red);color:#fb7185;}
+.oitem{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:.9rem 1rem;margin-bottom:.6rem;}
+.ohead{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem;}
+.ohead strong{font-family:'Syne',sans-serif;font-size:.95rem;}
+.otot{font-family:'Syne',sans-serif;font-weight:700;color:var(--green);font-size:1rem;}
+.ometa{font-size:.76rem;color:var(--muted);line-height:1.5;}
+.oitens{font-size:.8rem;color:var(--text);margin-top:.45rem;padding-top:.45rem;border-top:1px solid var(--border);}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.107.0/dist/umd/supabase.js" integrity="sha384-CQbEv3UOeYwlaBLdPF5KqEagCP39Q1KpvJC6Gwa3UGjZAwMvpA+0TFxSSnrgb4MX" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -283,8 +292,24 @@ nav{position:sticky;top:0;z-index:100;background:rgba(13,11,20,0.97);backdrop-fi
 <!-- ADMIN -->
 <div class="page" id="page-admin">
   <div class="adminpage">
-    <h2>⚙️ Painel Admin</h2>
-    <p class="sub">Gerencie seus produtos. Tudo salvo automaticamente.</p>
+    <!-- LOGIN (aparece quando não autenticado) -->
+    <div class="acard" id="adminLogin" style="display:none;max-width:380px;margin:2rem auto;">
+      <h4>🔒 Login do Admin</h4>
+      <div class="fg"><label>E-mail</label><input id="login-email" type="email" placeholder="seu@email.com" autocomplete="username"></div>
+      <div class="fg"><label>Senha</label><input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')adminLogin()"></div>
+      <button class="savebtn" onclick="adminLogin()">Entrar</button>
+      <p id="loginMsg" style="display:none;color:var(--red);font-size:.8rem;margin-top:.6rem;"></p>
+    </div>
+
+    <!-- CONTEÚDO (aparece quando autenticado) -->
+    <div id="adminContent" style="display:none;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">
+      <div>
+        <h2>⚙️ Painel Admin</h2>
+        <p class="sub">Gerencie seus produtos e veja os pedidos.</p>
+      </div>
+      <button class="logoutbtn" onclick="adminLogout()">Sair</button>
+    </div>
 
     <div class="acard">
       <h4>➕ Adicionar Produto</h4>
@@ -328,6 +353,14 @@ nav{position:sticky;top:0;z-index:100;background:rgba(13,11,20,0.97);backdrop-fi
       <h4 style="font-size:.92rem;font-weight:700;">Produtos cadastrados (<span id="adminCount">0</span>)</h4>
     </div>
     <div class="alist" id="adminList"></div>
+
+    <!-- PEDIDOS -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:1.75rem 0 .65rem;">
+      <h4 style="font-size:.92rem;font-weight:700;">📦 Pedidos recebidos (<span id="ordersCount">0</span>)</h4>
+      <button class="flt" onclick="loadOrders()">↻ Atualizar</button>
+    </div>
+    <div class="alist" id="ordersList"></div>
+    </div><!-- /adminContent -->
   </div>
 </div>
 
@@ -347,55 +380,43 @@ nav{position:sticky;top:0;z-index:100;background:rgba(13,11,20,0.97);backdrop-fi
 <script>
 const WPP_NUM = '5573981945910';
 const PIX_KEY = '1187600526';
-const LS_PROD = 'rdp_v2_products_legacy';
-const DB_NAME='rdp_catalog_db';
-const DB_STORE='products';
 const LS_CART = 'rdp_v2_cart';
+
+// ===== Supabase =====
+// Preencha com os dados do seu projeto (Settings > API no painel do Supabase):
+const SUPABASE_URL = 'https://gegykbsjgzvxyzwpnzol.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_lkIjYaEIGL_oeFAY0Y0w0A_eObGklg8'; // chave publishable (pública)
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let products = [];
 let cart = JSON.parse(localStorage.getItem(LS_CART)||'{}');
-let nxtId = 1;
+let nxtId = 1; // id é fornecido pelo cliente (tabela não usa auto-incremento)
 
-function openDB(){
- return new Promise((resolve,reject)=>{
-  const req=indexedDB.open(DB_NAME,1);
-  req.onupgradeneeded=(e)=>{
-   const db=e.target.result;
-   if(!db.objectStoreNames.contains(DB_STORE)){
-      db.createObjectStore(DB_STORE,{keyPath:'id'});
-   }
-  };
-  req.onsuccess=()=>resolve(req.result);
-  req.onerror=()=>reject(req.error);
- });
+// A tabela "produtos" usa colunas em português. Estas funções convertem
+// entre o formato do banco e o formato usado no app (em inglês).
+function fromDB(r){
+ return {
+   id:r.id, name:r.nome, price:Number(r.preco), brand:r.marca, desc:r.descricao,
+   cat:r.categoria, img:r.imagem_url||'', emoji:r.emoji||'💨',
+   tags:r.tags||[], badge:r.badge||'', avail:r.disponivel!==false
+ };
+}
+function toDB(p){
+ return {
+   id:p.id, nome:p.name, preco:p.price, marca:p.brand, descricao:p.desc,
+   categoria:p.cat, imagem_url:p.img||null, emoji:p.emoji,
+   tags:p.tags, badge:p.badge, disponivel:p.avail
+ };
 }
 
 async function loadProducts(){
- const db=await openDB();
- return new Promise((resolve,reject)=>{
-  const req=db.transaction(DB_STORE,'readonly').objectStore(DB_STORE).getAll();
-  req.onsuccess=()=>resolve(req.result||[]);
-  req.onerror=()=>reject(req.error);
- });
-}
-
-async function save(){
- const db=await openDB();
- const tx=db.transaction(DB_STORE,'readwrite');
- const store=tx.objectStore(DB_STORE);
- store.clear();
- products.forEach(p=>store.put(p));
+ const { data, error } = await sb.from('produtos').select('*').order('id',{ascending:true});
+ if(error){ console.error('Erro ao carregar produtos:', error); toast('⚠️ Erro ao carregar produtos'); return []; }
+ return (data||[]).map(fromDB);
 }
 
 async function initDB(){
- products=await loadProducts();
- if(products.length===0){
-   const legacy=JSON.parse(localStorage.getItem(LS_PROD)||'null')||[];
-   if(legacy.length){
-      products=legacy;
-      await save();
-   }
- }
+ products = await loadProducts();
  nxtId = products.length ? Math.max(...products.map(p=>p.id))+1 : 1;
 }
 let curFilter = 'all';
@@ -413,11 +434,61 @@ function goPage(p){
   document.querySelectorAll('.nav-tab').forEach(x=>x.classList.remove('active'));
   if(p==='catalog') document.querySelectorAll('.nav-tab')[0].classList.add('active');
   if(p==='admin'){
-      const s=prompt('Digite a senha do Admin:');
-      if(s!=='reidospod2026'){ goPage('catalog'); alert('Senha incorreta'); return; }
-      document.querySelectorAll('.nav-tab')[1].classList.add('active'); renderAdmin();
+      document.querySelectorAll('.nav-tab')[1].classList.add('active');
+      refreshAdminView();
     }
   window.scrollTo(0,0);
+}
+
+// ===== Autenticação do Admin (Supabase Auth) =====
+async function refreshAdminView(){
+  const { data:{ session } } = await sb.auth.getSession();
+  const logged = !!session;
+  document.getElementById('adminLogin').style.display = logged ? 'none' : 'block';
+  document.getElementById('adminContent').style.display = logged ? 'block' : 'none';
+  if(logged){ renderAdmin(); loadOrders(); }
+}
+async function adminLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const pass=document.getElementById('login-pass').value;
+  const msg=document.getElementById('loginMsg');
+  msg.style.display='none';
+  if(!email||!pass){ msg.textContent='Preencha e-mail e senha.'; msg.style.display='block'; return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password:pass });
+  if(error){ console.error('Erro de login:', error); msg.textContent='E-mail ou senha inválidos.'; msg.style.display='block'; return; }
+  document.getElementById('login-pass').value='';
+  refreshAdminView();
+  toast('✅ Bem-vindo ao Admin!');
+}
+async function adminLogout(){
+  await sb.auth.signOut();
+  refreshAdminView();
+  goPage('catalog');
+  toast('Você saiu do Admin.');
+}
+async function loadOrders(){
+  const el=document.getElementById('ordersList');
+  const { data, error } = await sb.from('pedidos').select('*').order('created_at',{ascending:false});
+  if(error){
+    console.error('Erro ao carregar pedidos:', error);
+    document.getElementById('ordersCount').textContent='0';
+    el.innerHTML='<p style="color:var(--red);font-size:.85rem;text-align:center;padding:1.5rem;">Não foi possível carregar os pedidos. Verifique se a tabela "pedidos" existe e se você está logado.</p>';
+    return;
+  }
+  const list=data||[];
+  document.getElementById('ordersCount').textContent=list.length;
+  if(!list.length){ el.innerHTML='<p style="color:var(--muted);font-size:.85rem;text-align:center;padding:1.5rem;">Nenhum pedido ainda.</p>'; return; }
+  el.innerHTML=list.map(o=>{
+    const itens=(o.itens||[]).map(i=>`${i.name} ×${i.qty}`).join(', ');
+    const quando=o.created_at?new Date(o.created_at).toLocaleString('pt-BR'):'';
+    const pag=o.pagamento==='pix'?'Pix':'Dinheiro';
+    return `<div class="oitem">
+      <div class="ohead"><strong>${o.nome||'—'}</strong><span class="otot">${fmt(Number(o.total)||0)}</span></div>
+      <div class="ometa">${quando} · 💳 ${pag} · 📱 ${o.whatsapp||'—'}</div>
+      <div class="ometa">📍 ${o.rua||''}, ${o.numero||''}${o.complemento?' - '+o.complemento:''} — ${o.bairro||''}, ${o.cidade||''}/${o.uf||''}${o.cep?' · CEP '+o.cep:''}${o.referencia?' · Ref: '+o.referencia:''}</div>
+      <div class="oitens">🛍️ ${itens||'—'}</div>
+    </div>`;
+  }).join('');
 }
 
 function setFilter(f,el){
@@ -527,7 +598,7 @@ function fmtCEP(el){ el.value=el.value.replace(/\D/g,'').replace(/^(\d{5})(\d)/,
 function fmtPhone(el){ el.value=el.value.replace(/\D/g,'').replace(/^(\d{2})(\d)/,'($1) $2').replace(/(\d{5})(\d)/,'$1-$2').slice(0,15); }
 function fmtCPF(el){ el.value=el.value.replace(/\D/g,'').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2').slice(0,14); }
 
-function placeOrder(){
+async function placeOrder(){
   const req=['f-nome','f-wpp','f-rua','f-num','f-bairro','f-cidade','f-cep','f-uf'];
   for(const id of req){ if(!document.getElementById(id).value.trim()){ toast('⚠️ Preencha todos os campos obrigatórios!'); return; } }
   const nome=document.getElementById('f-nome').value.trim();
@@ -551,6 +622,14 @@ function placeOrder(){
     `🛍️ *Itens:*\n${itensTxt}\n\n`+
     `💰 *Total: ${fmt(tot)}*\n`+
     `💳 *Pagamento:* ${pagTxt}`;
+  // Salva o pedido no Supabase (não bloqueia o envio pelo WhatsApp em caso de erro)
+  const itensPedido=items.map(i=>({id:i.id,name:i.name,price:i.price,qty:i.qty}));
+  const pedido={
+    nome, whatsapp:wpp, rua, numero:num, complemento:comp, bairro, cidade, uf, cep,
+    referencia:ref, pagamento:curPay, total:tot, itens:itensPedido
+  };
+  const { error } = await sb.from('pedidos').insert(pedido);
+  if(error){ console.error('Erro ao salvar pedido:', error); toast('⚠️ Não foi possível salvar o pedido no sistema, mas seguimos pelo WhatsApp.'); }
   const url=`https://wa.me/${WPP_NUM}?text=${encodeURIComponent(msg)}`;
   window.open(url,'_blank');
   cart={}; saveCart(); updateCartUI();
@@ -570,12 +649,12 @@ function previewImg(input){
   reader.readAsDataURL(file);
 }
 function selBadge(v,el){ curBadge=v; document.querySelectorAll('.bopt').forEach(b=>b.classList.remove('on')); el.classList.add('on'); }
-function addProduct(){
+async function addProduct(){
   const name=document.getElementById('a-name').value.trim();
   const price=parseFloat(document.getElementById('a-price').value);
   if(!name||isNaN(price)||price<=0){ toast('⚠️ Nome e preço são obrigatórios!'); return; }
   const tags=(document.getElementById('a-tags').value||'').split(',').map(t=>t.trim()).filter(Boolean);
-  products.push({
+  const novo={
     id:nxtId++,
     img:pendingImg,
     emoji:document.getElementById('a-emoji').value||'💨',
@@ -584,8 +663,11 @@ function addProduct(){
     desc:document.getElementById('a-desc').value.trim(),
     cat:document.getElementById('a-cat').value,
     tags, badge:curBadge, avail:true
-  });
-  save(); renderAdmin(); renderCatalog();
+  };
+  const { data, error } = await sb.from('produtos').insert(toDB(novo)).select().single();
+  if(error){ console.error('Erro ao salvar produto:', error); toast('⚠️ Erro ao salvar produto'); nxtId--; return; }
+  products.push(fromDB(data));
+  renderAdmin(); renderCatalog();
   ['a-name','a-price','a-desc','a-tags','a-brand'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('a-emoji').value='💨';
   document.getElementById('imgPreview').innerHTML='📷 Clique para adicionar foto do produto';
@@ -594,16 +676,21 @@ function addProduct(){
   const m=document.getElementById('addMsg'); m.style.display='inline'; setTimeout(()=>m.style.display='none',2200);
   toast('✅ Produto adicionado!');
 }
-function toggleAvail(id){
+async function toggleAvail(id){
   const p=products.find(x=>x.id===id); if(!p)return;
-  p.avail=!p.avail; save(); renderAdmin(); renderCatalog();
+  const novoAvail=!p.avail;
+  const { error } = await sb.from('produtos').update({disponivel:novoAvail}).eq('id',id);
+  if(error){ console.error('Erro ao atualizar produto:', error); toast('⚠️ Erro ao atualizar'); return; }
+  p.avail=novoAvail; renderAdmin(); renderCatalog();
   toast(p.avail?`✅ ${p.name} ativado`:`🚫 ${p.name} pausado`);
 }
-function delProduct(id){
+async function delProduct(id){
   if(!confirm('Remover produto permanentemente?'))return;
+  const { error } = await sb.from('produtos').delete().eq('id',id);
+  if(error){ console.error('Erro ao remover produto:', error); toast('⚠️ Erro ao remover'); return; }
   products=products.filter(p=>p.id!==id);
   delete cart[id]; saveCart(); updateCartUI();
-  save(); renderAdmin(); renderCatalog();
+  renderAdmin(); renderCatalog();
   toast('🗑️ Removido.');
 }
 function renderAdmin(){
